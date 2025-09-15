@@ -4,7 +4,6 @@ const testing = std.testing;
 const FileReader = std.fs.File.Reader;
 const Reader = std.Io.Reader;
 const Allocator = std.mem.Allocator;
-const Limit = std.Io.Limit;
 
 pub const KaitaiStream = struct {
     reader_impl: union(enum) {
@@ -199,8 +198,11 @@ pub const KaitaiStream = struct {
         return self.reader().readAlloc(allocator, len);
     }
 
-    pub fn readBytesFull(self: *KaitaiStream, allocator: Allocator) ![]u8 {
-        return self.reader().allocRemaining(allocator, Limit.unlimited);
+    pub fn readBytesFull(self: *KaitaiStream, allocator: Allocator) error{ ReadFailed, OutOfMemory }![]u8 {
+        return self.reader().allocRemaining(allocator, .unlimited) catch |err| switch (err) {
+            error.StreamTooLong => unreachable, // unlimited is passed
+            else => |e| e,
+        };
     }
 
     pub fn readBytesTerm(
