@@ -58,10 +58,13 @@ pub const KaitaiStream = struct {
     // }
 
     pub fn seek(self: *KaitaiStream, new_pos: u64) FileReader.SeekError!void {
-        return switch (self.reader_impl) {
-            .file => |file_reader| file_reader.seekTo(new_pos),
-            .bytes => |*bytes_reader| bytes_reader.seek = new_pos,
-        };
+        switch (self.reader_impl) {
+            .file => |file_reader| return file_reader.seekTo(new_pos),
+            .bytes => |*bytes_reader| {
+                const target_pos = std.math.cast(usize, new_pos) orelse return error.Unseekable;
+                bytes_reader.seek = target_pos;
+            },
+        }
     }
 
     pub fn pos(self: *KaitaiStream) u64 {
