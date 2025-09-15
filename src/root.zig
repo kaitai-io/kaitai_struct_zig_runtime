@@ -2,25 +2,37 @@
 const std = @import("std");
 const testing = std.testing;
 const FileReader = std.fs.File.Reader;
+const Reader = std.Io.Reader;
 const Allocator = std.mem.Allocator;
 const Limit = std.Io.Limit;
 
 pub const KaitaiStream = struct {
-    // TODO: also support reading from byte buffers - we could use
-    // [`std.Io.Reader.fixed`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Reader.fixed),
-    // but how would we support seeking when `std.Io.Reader` isn't designed to support seeking?
-    reader: *FileReader,
+    reader_impl: union(enum) {
+        file: *FileReader,
+        bytes: Reader,
+    },
 
-    pub fn init(reader: *FileReader) KaitaiStream {
-        return .{
-            .reader = reader,
+    pub fn fromFileReader(file_reader: *FileReader) KaitaiStream {
+        return .{ .reader_impl = .{
+            .file = file_reader,
+        } };
+    }
+
+    pub fn fromBytes(bytes: []const u8) KaitaiStream {
+        return .{ .reader_impl = .{ .bytes = Reader.fixed(bytes) } };
+    }
+
+    fn reader(self: *KaitaiStream) *Reader {
+        return switch (self.reader_impl) {
+            .file => |file_reader| &file_reader.interface,
+            .bytes => |*bytes_reader| bytes_reader,
         };
     }
 
     //#region Stream positioning
 
     pub fn isEof(self: *KaitaiStream) error{ReadFailed}!bool {
-        if (self.reader.interface.peekByte()) |_| {
+        if (self.reader().peekByte()) |_| {
             return false;
         } else |err| {
             return switch (err) {
@@ -46,16 +58,25 @@ pub const KaitaiStream = struct {
     //     return self.reader.atEnd();
     // }
 
-    pub fn seek(self: *KaitaiStream, newPos: u64) FileReader.SeekError!void {
-        return self.reader.seekTo(newPos);
+    pub fn seek(self: *KaitaiStream, new_pos: u64) FileReader.SeekError!void {
+        return switch (self.reader_impl) {
+            .file => |file_reader| file_reader.seekTo(new_pos),
+            .bytes => |*bytes_reader| bytes_reader.seek = new_pos,
+        };
     }
 
     pub fn pos(self: *KaitaiStream) u64 {
-        return self.reader.logicalPos();
+        return switch (self.reader_impl) {
+            .file => |file_reader| file_reader.logicalPos(),
+            .bytes => |*bytes_reader| bytes_reader.seek,
+        };
     }
 
     pub fn size(self: *KaitaiStream) FileReader.SizeError!u64 {
-        return self.reader.getSize();
+        return switch (self.reader_impl) {
+            .file => |file_reader| file_reader.getSize(),
+            .bytes => |*bytes_reader| bytes_reader.end,
+        };
     }
 
     //#endregion
@@ -65,21 +86,21 @@ pub const KaitaiStream = struct {
     //#region Signed
 
     pub fn readS1(self: *KaitaiStream) !i8 {
-        return self.reader.interface.takeByteSigned();
+        return self.reader().takeByteSigned();
     }
 
     //#region Big-endian
 
     pub fn readS2be(self: *KaitaiStream) !i16 {
-        return self.reader.interface.takeInt(i16, .big);
+        return self.reader().takeInt(i16, .big);
     }
 
     pub fn readS4be(self: *KaitaiStream) !i32 {
-        return self.reader.interface.takeInt(i32, .big);
+        return self.reader().takeInt(i32, .big);
     }
 
     pub fn readS8be(self: *KaitaiStream) !i64 {
-        return self.reader.interface.takeInt(i64, .big);
+        return self.reader().takeInt(i64, .big);
     }
 
     //#endregion
@@ -87,15 +108,15 @@ pub const KaitaiStream = struct {
     //#region Little-endian
 
     pub fn readS2le(self: *KaitaiStream) !i16 {
-        return self.reader.interface.takeInt(i16, .little);
+        return self.reader().takeInt(i16, .little);
     }
 
     pub fn readS4le(self: *KaitaiStream) !i32 {
-        return self.reader.interface.takeInt(i32, .little);
+        return self.reader().takeInt(i32, .little);
     }
 
     pub fn readS8le(self: *KaitaiStream) !i64 {
-        return self.reader.interface.takeInt(i64, .little);
+        return self.reader().takeInt(i64, .little);
     }
 
     //#endregion
@@ -105,21 +126,21 @@ pub const KaitaiStream = struct {
     //#region Unsigned
 
     pub fn readU1(self: *KaitaiStream) !u8 {
-        return self.reader.interface.takeByte();
+        return self.reader().takeByte();
     }
 
     //#region Big-endian
 
     pub fn readU2be(self: *KaitaiStream) !u16 {
-        return self.reader.interface.takeInt(u16, .big);
+        return self.reader().takeInt(u16, .big);
     }
 
     pub fn readU4be(self: *KaitaiStream) !u32 {
-        return self.reader.interface.takeInt(u32, .big);
+        return self.reader().takeInt(u32, .big);
     }
 
     pub fn readU8be(self: *KaitaiStream) !u64 {
-        return self.reader.interface.takeInt(u64, .big);
+        return self.reader().takeInt(u64, .big);
     }
 
     //#endregion
@@ -127,15 +148,15 @@ pub const KaitaiStream = struct {
     //#region Little-endian
 
     pub fn readU2le(self: *KaitaiStream) !u16 {
-        return self.reader.interface.takeInt(u16, .little);
+        return self.reader().takeInt(u16, .little);
     }
 
     pub fn readU4le(self: *KaitaiStream) !u32 {
-        return self.reader.interface.takeInt(u32, .little);
+        return self.reader().takeInt(u32, .little);
     }
 
     pub fn readU8le(self: *KaitaiStream) !u64 {
-        return self.reader.interface.takeInt(u64, .little);
+        return self.reader().takeInt(u64, .little);
     }
 
     //#endregion
@@ -175,11 +196,11 @@ pub const KaitaiStream = struct {
     //#region Byte arrays
 
     pub fn readBytes(self: *KaitaiStream, allocator: Allocator, len: usize) ![]u8 {
-        return self.reader.interface.readAlloc(allocator, len);
+        return self.reader().readAlloc(allocator, len);
     }
 
     pub fn readBytesFull(self: *KaitaiStream, allocator: Allocator) ![]u8 {
-        return self.reader.interface.allocRemaining(allocator, Limit.unlimited);
+        return self.reader().allocRemaining(allocator, Limit.unlimited);
     }
 
     pub fn readBytesTerm(
@@ -193,7 +214,7 @@ pub const KaitaiStream = struct {
         var allocating_writer = std.Io.Writer.Allocating.init(allocator);
         defer allocating_writer.deinit();
         const writer = &allocating_writer.writer;
-        const r = &self.reader.interface;
+        const r = self.reader();
         _ = r.streamDelimiterEnding(writer, term) catch |err| {
             return switch (err) {
                 // As of Zig 0.15.1,
@@ -234,7 +255,7 @@ test "read file" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(3, ks_io.size());
     try testing.expectEqual(0, ks_io.pos());
     try testing.expectEqual(0xc2, ks_io.readU1());
@@ -258,7 +279,7 @@ test "isEof on reader failure" {
     const file = try std.fs.cwd().openFile("test.bin", .{});
     var buffer: [1]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(false, ks_io.isEof());
     try testing.expectEqual(0xc2, ks_io.readU1());
     file.close();
@@ -270,7 +291,7 @@ test "readBytes" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, ks_io.readU1());
     const bytes = try ks_io.readBytes(allocator, 2);
@@ -283,7 +304,7 @@ test "readBytesFull" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, ks_io.readU1());
     const bytes = try ks_io.readBytesFull(allocator);
@@ -296,7 +317,7 @@ test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (defa
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try ks_io.readBytesTerm(allocator, '\x0a', false, true, true);
     defer allocator.free(bytes);
@@ -309,7 +330,7 @@ test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`"
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try ks_io.readBytesTerm(allocator, '\x0a', false, false, true);
     defer allocator.free(bytes);
@@ -322,7 +343,7 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try ks_io.readBytesTerm(allocator, '\x0a', true, false, true);
     defer allocator.free(bytes);
@@ -335,7 +356,7 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, b
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectError(error.EndOfStream, ks_io.readBytesTerm(allocator, '\x00', true, true, true));
     try testing.expectEqual(3, ks_io.pos());
@@ -346,7 +367,7 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.init(&reader);
+    var ks_io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try ks_io.readBytesTerm(allocator, '\x00', true, true, false);
     defer allocator.free(bytes);
@@ -354,26 +375,22 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     try testing.expectEqual(3, ks_io.pos());
 }
 
-// test "readF4be" {
-//     var r: std.Io.Reader = .fixed(&.{ 0x3f, 0xc0, 0x00, 0x00 });
-//     var ks_io = KaitaiStream.init(&r);
-//     try testing.expectEqual(1.5, ks_io.readF4be());
-// }
+test "readF4be" {
+    var ks_io = KaitaiStream.fromBytes(&.{ 0x3f, 0xc0, 0x00, 0x00 });
+    try testing.expectEqual(1.5, ks_io.readF4be());
+}
 
-// test "readF4le" {
-//     var r: std.Io.Reader = .fixed(&.{ 0x00, 0x00, 0xc0, 0x3f });
-//     var ks_io = KaitaiStream.init(&r);
-//     try testing.expectEqual(1.5, ks_io.readF4le());
-// }
+test "readF4le" {
+    var ks_io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0xc0, 0x3f });
+    try testing.expectEqual(1.5, ks_io.readF4le());
+}
 
-// test "readF8be" {
-//     var r: std.Io.Reader = .fixed(&.{ 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
-//     var ks_io = KaitaiStream.init(&r);
-//     try testing.expectEqual(1.5, ks_io.readF8be());
-// }
+test "readF8be" {
+    var ks_io = KaitaiStream.fromBytes(&.{ 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
+    try testing.expectEqual(1.5, ks_io.readF8be());
+}
 
-// test "readF8le" {
-//     var r: std.Io.Reader = .fixed(&.{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f });
-//     var ks_io = KaitaiStream.init(&r);
-//     try testing.expectEqual(1.5, ks_io.readF8le());
-// }
+test "readF8le" {
+    var ks_io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f });
+    try testing.expectEqual(1.5, ks_io.readF8le());
+}
