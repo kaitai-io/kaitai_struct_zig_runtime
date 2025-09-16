@@ -260,35 +260,35 @@ test "read file" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
-    try testing.expectEqual(3, ks_io.size());
-    try testing.expectEqual(0, ks_io.pos());
-    try testing.expectEqual(0xc2, ks_io.readU1());
-    try testing.expectEqual(1, ks_io.pos());
-    try testing.expectEqual(-0x5d, ks_io.readS1());
-    try testing.expectEqual(false, ks_io.isEof());
-    try testing.expectEqual(2, ks_io.pos());
-    try testing.expectEqual(0x0a, ks_io.readS1());
-    try testing.expectEqual(true, ks_io.isEof());
-    try testing.expectEqual(3, ks_io.pos());
-    try testing.expectError(error.EndOfStream, ks_io.readU1());
-    try testing.expectError(error.EndOfStream, ks_io.readS1());
-    try ks_io.seek(0);
-    try testing.expectEqual(0, ks_io.pos());
-    try testing.expectEqual(0xa3c2, ks_io.readU2le());
-    try testing.expectError(error.EndOfStream, ks_io.readS2be());
-    try testing.expectEqual(2, ks_io.pos());
+    var _io = KaitaiStream.fromFileReader(&reader);
+    try testing.expectEqual(3, _io.size());
+    try testing.expectEqual(0, _io.pos());
+    try testing.expectEqual(0xc2, _io.readU1());
+    try testing.expectEqual(1, _io.pos());
+    try testing.expectEqual(-0x5d, _io.readS1());
+    try testing.expectEqual(false, _io.isEof());
+    try testing.expectEqual(2, _io.pos());
+    try testing.expectEqual(0x0a, _io.readS1());
+    try testing.expectEqual(true, _io.isEof());
+    try testing.expectEqual(3, _io.pos());
+    try testing.expectError(error.EndOfStream, _io.readU1());
+    try testing.expectError(error.EndOfStream, _io.readS1());
+    try _io.seek(0);
+    try testing.expectEqual(0, _io.pos());
+    try testing.expectEqual(0xa3c2, _io.readU2le());
+    try testing.expectError(error.EndOfStream, _io.readS2be());
+    try testing.expectEqual(2, _io.pos());
 }
 
 test "isEof on reader failure" {
     const file = try std.fs.cwd().openFile("test.bin", .{});
     var buffer: [1]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
-    try testing.expectEqual(false, ks_io.isEof());
-    try testing.expectEqual(0xc2, ks_io.readU1());
+    var _io = KaitaiStream.fromFileReader(&reader);
+    try testing.expectEqual(false, _io.isEof());
+    try testing.expectEqual(0xc2, _io.readU1());
     file.close();
-    try testing.expectError(error.ReadFailed, ks_io.isEof());
+    try testing.expectError(error.ReadFailed, _io.isEof());
 }
 
 test "readBytes" {
@@ -296,10 +296,10 @@ test "readBytes" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    try testing.expectEqual(0xc2, ks_io.readU1());
-    const bytes = try ks_io.readBytes(allocator, 2);
+    try testing.expectEqual(0xc2, _io.readU1());
+    const bytes = try _io.readBytes(allocator, 2);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xa3\x0a", bytes);
 }
@@ -309,10 +309,10 @@ test "readBytesFull" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    try testing.expectEqual(0xc2, ks_io.readU1());
-    const bytes = try ks_io.readBytesFull(allocator);
+    try testing.expectEqual(0xc2, _io.readU1());
+    const bytes = try _io.readBytesFull(allocator);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xa3\x0a", bytes);
 }
@@ -322,12 +322,12 @@ test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (defa
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    const bytes = try ks_io.readBytesTerm(allocator, '\x0a', false, true, true);
+    const bytes = try _io.readBytesTerm(allocator, '\x0a', false, true, true);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3", bytes);
-    try testing.expectEqual(3, ks_io.pos());
+    try testing.expectEqual(3, _io.pos());
 }
 
 test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`" {
@@ -335,12 +335,12 @@ test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`"
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    const bytes = try ks_io.readBytesTerm(allocator, '\x0a', false, false, true);
+    const bytes = try _io.readBytesTerm(allocator, '\x0a', false, false, true);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3", bytes);
-    try testing.expectEqual(2, ks_io.pos());
+    try testing.expectEqual(2, _io.pos());
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
@@ -348,12 +348,12 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    const bytes = try ks_io.readBytesTerm(allocator, '\x0a', true, false, true);
+    const bytes = try _io.readBytesTerm(allocator, '\x0a', true, false, true);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
-    try testing.expectEqual(3, ks_io.pos());
+    try testing.expectEqual(3, _io.pos());
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, but terminator is not present" {
@@ -361,10 +361,10 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, b
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    try testing.expectError(error.EndOfStream, ks_io.readBytesTerm(allocator, '\x00', true, true, true));
-    try testing.expectEqual(3, ks_io.pos());
+    try testing.expectError(error.EndOfStream, _io.readBytesTerm(allocator, '\x00', true, true, true));
+    try testing.expectEqual(3, _io.pos());
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (!)" {
@@ -372,30 +372,30 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     defer file.close();
     var buffer: [4096]u8 = undefined;
     var reader = file.reader(&buffer);
-    var ks_io = KaitaiStream.fromFileReader(&reader);
+    var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
-    const bytes = try ks_io.readBytesTerm(allocator, '\x00', true, true, false);
+    const bytes = try _io.readBytesTerm(allocator, '\x00', true, true, false);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
-    try testing.expectEqual(3, ks_io.pos());
+    try testing.expectEqual(3, _io.pos());
 }
 
 test "readF4be" {
-    var ks_io = KaitaiStream.fromBytes(&.{ 0x3f, 0xc0, 0x00, 0x00 });
-    try testing.expectEqual(1.5, ks_io.readF4be());
+    var _io = KaitaiStream.fromBytes(&.{ 0x3f, 0xc0, 0x00, 0x00 });
+    try testing.expectEqual(1.5, _io.readF4be());
 }
 
 test "readF4le" {
-    var ks_io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0xc0, 0x3f });
-    try testing.expectEqual(1.5, ks_io.readF4le());
+    var _io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0xc0, 0x3f });
+    try testing.expectEqual(1.5, _io.readF4le());
 }
 
 test "readF8be" {
-    var ks_io = KaitaiStream.fromBytes(&.{ 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
-    try testing.expectEqual(1.5, ks_io.readF8be());
+    var _io = KaitaiStream.fromBytes(&.{ 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });
+    try testing.expectEqual(1.5, _io.readF8be());
 }
 
 test "readF8le" {
-    var ks_io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f });
-    try testing.expectEqual(1.5, ks_io.readF8le());
+    var _io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f });
+    try testing.expectEqual(1.5, _io.readF8le());
 }
