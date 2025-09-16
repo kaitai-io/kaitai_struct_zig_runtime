@@ -67,7 +67,7 @@ pub const KaitaiStream = struct {
         }
     }
 
-    pub fn pos(self: *KaitaiStream) u64 {
+    pub fn pos(self: *const KaitaiStream) u64 {
         return switch (self.reader_impl) {
             .file => |file_reader| file_reader.logicalPos(),
             .bytes => |*bytes_reader| bytes_reader.seek,
