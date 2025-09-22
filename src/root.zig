@@ -63,6 +63,7 @@ pub const KaitaiStream = struct {
     // }
 
     pub fn seek(self: *KaitaiStream, new_pos: u64) FileReader.SeekError!void {
+        self.alignToByte();
         switch (self.reader_impl) {
             .file => |file_reader| return file_reader.seekTo(new_pos),
             .bytes => |*bytes_reader| {
@@ -93,20 +94,24 @@ pub const KaitaiStream = struct {
     //#region Signed
 
     pub fn readS1(self: *KaitaiStream) !i8 {
+        self.alignToByte();
         return self.reader().takeByteSigned();
     }
 
     //#region Big-endian
 
     pub fn readS2be(self: *KaitaiStream) !i16 {
+        self.alignToByte();
         return self.reader().takeInt(i16, .big);
     }
 
     pub fn readS4be(self: *KaitaiStream) !i32 {
+        self.alignToByte();
         return self.reader().takeInt(i32, .big);
     }
 
     pub fn readS8be(self: *KaitaiStream) !i64 {
+        self.alignToByte();
         return self.reader().takeInt(i64, .big);
     }
 
@@ -115,14 +120,17 @@ pub const KaitaiStream = struct {
     //#region Little-endian
 
     pub fn readS2le(self: *KaitaiStream) !i16 {
+        self.alignToByte();
         return self.reader().takeInt(i16, .little);
     }
 
     pub fn readS4le(self: *KaitaiStream) !i32 {
+        self.alignToByte();
         return self.reader().takeInt(i32, .little);
     }
 
     pub fn readS8le(self: *KaitaiStream) !i64 {
+        self.alignToByte();
         return self.reader().takeInt(i64, .little);
     }
 
@@ -133,20 +141,24 @@ pub const KaitaiStream = struct {
     //#region Unsigned
 
     pub fn readU1(self: *KaitaiStream) !u8 {
+        self.alignToByte();
         return self.reader().takeByte();
     }
 
     //#region Big-endian
 
     pub fn readU2be(self: *KaitaiStream) !u16 {
+        self.alignToByte();
         return self.reader().takeInt(u16, .big);
     }
 
     pub fn readU4be(self: *KaitaiStream) !u32 {
+        self.alignToByte();
         return self.reader().takeInt(u32, .big);
     }
 
     pub fn readU8be(self: *KaitaiStream) !u64 {
+        self.alignToByte();
         return self.reader().takeInt(u64, .big);
     }
 
@@ -155,14 +167,17 @@ pub const KaitaiStream = struct {
     //#region Little-endian
 
     pub fn readU2le(self: *KaitaiStream) !u16 {
+        self.alignToByte();
         return self.reader().takeInt(u16, .little);
     }
 
     pub fn readU4le(self: *KaitaiStream) !u32 {
+        self.alignToByte();
         return self.reader().takeInt(u32, .little);
     }
 
     pub fn readU8le(self: *KaitaiStream) !u64 {
+        self.alignToByte();
         return self.reader().takeInt(u64, .little);
     }
 
@@ -177,10 +192,12 @@ pub const KaitaiStream = struct {
     //#region Big-endian
 
     pub fn readF4be(self: *KaitaiStream) !f32 {
+        self.alignToByte();
         return @bitCast(try self.readU4be());
     }
 
     pub fn readF8be(self: *KaitaiStream) !f64 {
+        self.alignToByte();
         return @bitCast(try self.readU8be());
     }
 
@@ -189,10 +206,12 @@ pub const KaitaiStream = struct {
     //#region Little-endian
 
     pub fn readF4le(self: *KaitaiStream) !f32 {
+        self.alignToByte();
         return @bitCast(try self.readU4le());
     }
 
     pub fn readF8le(self: *KaitaiStream) !f64 {
+        self.alignToByte();
         return @bitCast(try self.readU8le());
     }
 
@@ -285,10 +304,12 @@ pub const KaitaiStream = struct {
     //#region Byte arrays
 
     pub fn readBytes(self: *KaitaiStream, allocator: Allocator, len: usize) ![]u8 {
+        self.alignToByte();
         return self.reader().readAlloc(allocator, len);
     }
 
     pub fn readBytesFull(self: *KaitaiStream, allocator: Allocator) error{ ReadFailed, OutOfMemory }![]u8 {
+        self.alignToByte();
         return self.reader().allocRemaining(allocator, .unlimited) catch |err| switch (err) {
             error.StreamTooLong => unreachable, // unlimited is passed
             else => |e| e,
@@ -303,6 +324,7 @@ pub const KaitaiStream = struct {
         consume_term: bool,
         eos_error: bool,
     ) error{ ReadFailed, EndOfStream, OutOfMemory }![]u8 {
+        self.alignToByte();
         var allocating_writer = std.Io.Writer.Allocating.init(allocator);
         defer allocating_writer.deinit();
         const writer = &allocating_writer.writer;
