@@ -10,6 +10,8 @@ pub const KaitaiStream = struct {
         file: *FileReader,
         bytes: Reader,
     },
+    bits_left: u3 = 0,
+    bits: u7 = 0,
 
     pub fn fromFileReader(file_reader: *FileReader) KaitaiStream {
         return .{ .reader_impl = .{
@@ -31,6 +33,9 @@ pub const KaitaiStream = struct {
     //#region Stream positioning
 
     pub fn isEof(self: *KaitaiStream) error{ReadFailed}!bool {
+        if (self.bits_left > 0) {
+            return false;
+        }
         if (self.reader().peekByte()) |_| {
             return false;
         } else |err| {
@@ -192,6 +197,88 @@ pub const KaitaiStream = struct {
     }
 
     //#endregion
+
+    //#endregion
+
+    //#region Unaligned bit values
+
+    fn alignToByte(self: *KaitaiStream) void {
+        self.bits_left = 0;
+        self.bits = 0;
+    }
+
+    pub fn readBitsIntBe(self: *KaitaiStream, n: u7) !u64 {
+        if (n > 64) {
+            return error.ReadBitsTooLarge;
+        }
+
+        var res: u64 = 0;
+
+        const bits_needed = @as(i8, n) - self.bits_left;
+        self.bits_left = @intCast(@mod(-bits_needed, 8));
+
+        if (bits_needed > 0) {
+            // 1 bit  => 1 byte
+            // 8 bits => 1 byte
+            // 9 bits => 2 bytes
+            const bytes_needed = std.math.divCeil(usize, @intCast(bits_needed), 8) catch unreachable;
+            const buf = try self.reader().take(bytes_needed);
+            for (buf) |b| {
+                res = res << 8 | b;
+            }
+
+            const new_bits: u7 = @truncate(res);
+            res = res >> self.bits_left | (if (bits_needed < 64) @as(u64, self.bits) << @intCast(bits_needed) else 0);
+            self.bits = new_bits;
+        } else {
+            res = self.bits >> @intCast(-bits_needed);
+        }
+
+        const mask = (@as(u8, 1) << self.bits_left) - 1;
+        self.bits &= @intCast(mask);
+
+        return res;
+    }
+
+    pub fn readBitsIntLe(self: *KaitaiStream, n: u7) !u64 {
+        if (n > 64) {
+            return error.ReadBitsTooLarge;
+        }
+
+        var res: u64 = 0;
+        const bits_needed = @as(i8, n) - self.bits_left;
+
+        if (bits_needed > 0) {
+            // 1 bit  => 1 byte
+            // 8 bits => 1 byte
+            // 9 bits => 2 bytes
+            const bytes_needed = std.math.divCeil(usize, @intCast(bits_needed), 8) catch unreachable;
+            const buf = try self.reader().take(bytes_needed);
+            {
+                var i = bytes_needed;
+                while (i > 0) {
+                    i -= 1;
+                    res = res << 8 | buf[i];
+                }
+            }
+
+            const new_bits: u7 = @truncate(if (bits_needed < 64) res >> @intCast(bits_needed) else 0);
+            res = res << self.bits_left | self.bits;
+            self.bits = new_bits;
+        } else {
+            res = self.bits;
+            self.bits = if (n < 7) self.bits >> @intCast(n) else 0;
+        }
+
+        self.bits_left = @intCast(@mod(-bits_needed, 8));
+
+        if (n < 64) {
+            const mask = (@as(u64, 1) << @intCast(n)) - 1;
+            res &= mask;
+        }
+
+        return res;
+    }
 
     //#endregion
 
@@ -398,4 +485,40 @@ test "readF8be" {
 test "readF8le" {
     var _io = KaitaiStream.fromBytes(&.{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f });
     try testing.expectEqual(1.5, _io.readF8le());
+}
+
+test "readBitsIntBe - aligned b64" {
+    var _io = KaitaiStream.fromBytes(&.{ 0xEC, 0xBB, 0xA3, 0x14, 0x8A, 0xD4, 0xCC, 0x34 });
+    try testing.expectEqual(0xECBB_A314_8AD4_CC34, _io.readBitsIntBe(64));
+}
+
+test "readBitsIntBe - unaligned b64" {
+    // See:
+    //
+    // * https://github.com/kaitai-io/kaitai_struct_tests/blob/8bee144acd5981a78dc6ae0ce815c5d4f574cf2a/formats/bits_unaligned_b64_be.ksy
+    // * https://github.com/kaitai-io/kaitai_struct_tests/blob/8bee144acd5981a78dc6ae0ce815c5d4f574cf2a/spec/ks/bits_unaligned_b64_be.kst
+
+    // EC BB A3 14 8A D4 CC 34 8E (1 + 64 + 7) = 1|1101100 10111011 10100011 00010100 10001010 11010100 11001100 00110100 1|000_1110
+    var _io = KaitaiStream.fromBytes(&.{ 0xEC, 0xBB, 0xA3, 0x14, 0x8A, 0xD4, 0xCC, 0x34, 0x8E });
+    try testing.expectEqual(0b1, _io.readBitsIntBe(1));
+    try testing.expectEqual(0b1101100_10111011_10100011_00010100_10001010_11010100_11001100_00110100_1, _io.readBitsIntBe(64));
+    try testing.expectEqual(0b000_1110, _io.readBitsIntBe(7));
+}
+
+test "readBitsIntLe - aligned b64" {
+    var _io = KaitaiStream.fromBytes(&.{ 0xEC, 0xBB, 0xA3, 0x14, 0x8A, 0xD4, 0xCC, 0x34 });
+    try testing.expectEqual(0x34CC_D48A_14A3_BBEC, _io.readBitsIntLe(64));
+}
+
+test "readBitsIntLe - unaligned b64" {
+    // See:
+    //
+    // * https://github.com/kaitai-io/kaitai_struct_tests/blob/8bee144acd5981a78dc6ae0ce815c5d4f574cf2a/formats/bits_unaligned_b64_le.ksy
+    // * https://github.com/kaitai-io/kaitai_struct_tests/blob/8bee144acd5981a78dc6ae0ce815c5d4f574cf2a/spec/ks/bits_unaligned_b64_le.kst
+
+    // EC BB A3 14 8A D4 CC 34 8E (1 + 64 + 7) = 1110110|0 10111011 10100011 00010100 10001010 11010100 11001100 00110100 1000_111|0
+    var _io = KaitaiStream.fromBytes(&.{ 0xEC, 0xBB, 0xA3, 0x14, 0x8A, 0xD4, 0xCC, 0x34, 0x8E });
+    try testing.expectEqual(0b0, _io.readBitsIntLe(1));
+    try testing.expectEqual(0b0_00110100_11001100_11010100_10001010_00010100_10100011_10111011_1110110, _io.readBitsIntLe(64));
+    try testing.expectEqual(0b1000_111, _io.readBitsIntLe(7));
 }
