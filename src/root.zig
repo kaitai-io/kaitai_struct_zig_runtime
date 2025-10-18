@@ -14,13 +14,19 @@ pub const KaitaiStream = struct {
     bits: u7 = 0,
 
     pub fn fromFileReader(file_reader: *FileReader) KaitaiStream {
-        return .{ .reader_impl = .{
-            .file = file_reader,
-        } };
+        return .{
+            .reader_impl = .{
+                .file = file_reader,
+            },
+        };
     }
 
     pub fn fromBytes(bytes: []const u8) KaitaiStream {
-        return .{ .reader_impl = .{ .bytes = Reader.fixed(bytes) } };
+        return .{
+            .reader_impl = .{
+                .bytes = Reader.fixed(bytes),
+            },
+        };
     }
 
     fn reader(self: *KaitaiStream) *Reader {
