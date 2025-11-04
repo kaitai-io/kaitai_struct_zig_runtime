@@ -367,6 +367,50 @@ pub const KaitaiStream = struct {
         return allocating_writer.toOwnedSlice();
     }
 
+    pub fn bytesToStr(allocator: Allocator, bytes: []const u8, comptime encoding: []const u8) error{ IllegalSequence, OutOfMemory }![]u8 {
+        if (comptime std.mem.eql(u8, encoding, "ASCII")) {
+            for (bytes) |c| {
+                if (!std.ascii.isAscii(c)) {
+                    return error.IllegalSequence;
+                }
+            }
+            return allocator.dupe(u8, bytes);
+        }
+        if (comptime std.mem.eql(u8, encoding, "UTF-8")) {
+            if (!std.unicode.utf8ValidateSlice(bytes)) {
+                return error.IllegalSequence;
+            }
+            return allocator.dupe(u8, bytes);
+        }
+        const isUtf16Le = comptime std.mem.eql(u8, encoding, "UTF-16LE");
+        const isUtf16Be = comptime std.mem.eql(u8, encoding, "UTF-16BE");
+        if (comptime isUtf16Le or isUtf16Be) {
+            const endian: std.builtin.Endian = comptime if (isUtf16Le) .little else .big;
+            // UTF-16 uses 16-bit (2-byte) code units, so the input slice of bytes must have an even
+            // length.
+            if (bytes.len % 2 != 0) {
+                return error.IllegalSequence;
+            }
+            var bytes_reader = Reader.fixed(bytes);
+            const utf16 = bytes_reader.readSliceEndianAlloc(allocator, u16, @divExact(bytes.len, 2), endian) catch |err| {
+                switch (err) {
+                    // We read from an in-memory slice of bytes that is known to have an even
+                    // length, so these errors should never occur.
+                    error.ReadFailed, error.EndOfStream => unreachable,
+                    else => |e| return e,
+                }
+            };
+            defer allocator.free(utf16);
+            return std.unicode.utf16LeToUtf8Alloc(allocator, utf16) catch |err| switch (err) {
+                error.DanglingSurrogateHalf => error.IllegalSequence,
+                error.ExpectedSecondSurrogateHalf => error.IllegalSequence,
+                error.UnexpectedSecondSurrogateHalf => error.IllegalSequence,
+                else => |e| e,
+            };
+        }
+        @compileError("unsupported encoding '" ++ encoding ++ "'");
+    }
+
     //#endregion
 };
 
@@ -493,6 +537,221 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
     try testing.expectEqual(3, _io.pos());
+}
+
+test "bytesToStr - empty ASCII" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{};
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "ASCII");
+    defer allocator.free(str);
+    try testing.expectEqualSlices(u8, bytes, str);
+}
+
+test "bytesToStr - empty UTF-8" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{};
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-8");
+    defer allocator.free(str);
+    try testing.expectEqualSlices(u8, bytes, str);
+}
+
+test "bytesToStr - empty UTF-16LE" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{};
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE");
+    defer allocator.free(str);
+    try testing.expectEqualSlices(u8, bytes, str);
+}
+
+test "bytesToStr - empty UTF-16BE" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{};
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE");
+    defer allocator.free(str);
+    try testing.expectEqualSlices(u8, bytes, str);
+}
+
+test "bytesToStr - valid ASCII" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0x00, 0x01, 0x20, 0x7e, 0x7f };
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "ASCII");
+    defer allocator.free(str);
+    try testing.expectEqualSlices(u8, bytes, str);
+}
+
+test "bytesToStr - invalid ASCII (but valid UTF-8)" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0xc2, 0x80 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "ASCII"),
+    );
+}
+
+test "bytesToStr - valid UTF-8" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // for codepoint in (0x0000, 0x007F, 0x0080, 0x07FF, 0x0800, 0xFFFF, 0x10000, 0x10FFFF):
+    //     print(', '.join(f"{b:#04x}" for b in chr(codepoint).encode('UTF-8')) + f", // U+{codepoint:04X}")
+    // ```
+    const bytes: []const u8 = &.{
+        0x00, // U+0000
+        0x7f, // U+007F
+        0xc2, 0x80, // U+0080
+        0xdf, 0xbf, // U+07FF
+        0xe0, 0xa0, 0x80, // U+0800
+        0xef, 0xbf, 0xbf, // U+FFFF
+        0xf0, 0x90, 0x80, 0x80, // U+10000
+        0xf4, 0x8f, 0xbf, 0xbf, // U+10FFFF
+    };
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-8");
+    defer allocator.free(str);
+    try testing.expectEqualStrings("\u{0000}\u{007F}\u{0080}\u{07FF}\u{0800}\u{FFFF}\u{10000}\u{10FFFF}", str);
+}
+
+test "bytesToStr - invalid UTF-8 (surrogate code point)" {
+    const allocator = std.testing.allocator;
+    // See https://en.wikipedia.org/wiki/UTF-8#Surrogates:
+    //
+    // > [...] the high and low surrogates used by UTF-16 (U+D800 through
+    // > U+DFFF) are not legal Unicode values, and their UTF-8 encodings must be
+    // > treated as an invalid byte sequence.
+    //
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uD800'.encode('UTF-8', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0xed, 0xa0, 0x80 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-8"),
+    );
+}
+
+test "bytesToStr - valid UTF-16LE" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0x3d, 0xd8, 0x00, 0xde };
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE");
+    defer allocator.free(str);
+    try testing.expectEqualStrings("\u{1F600}", str);
+}
+
+test "bytesToStr - valid UTF-16BE" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0xd8, 0x3d, 0xde, 0x00 };
+    const str = try KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE");
+    defer allocator.free(str);
+    try testing.expectEqualStrings("\u{1F600}", str);
+}
+
+test "bytesToStr - invalid UTF-16LE (odd length)" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0x3d, 0xd8, 0x00 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16BE (odd length)" {
+    const allocator = std.testing.allocator;
+    const bytes: []const u8 = &.{ 0xd8, 0x3d, 0xde };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE"),
+    );
+}
+
+// Comment on the following "bytesToStr - invalid UTF-16*" tests:
+//
+// > UTF-16 disallows having high surrogate (any value in the range of 0xd800..0xdbff)
+// > not followed by low surrogate (any value in the range of 0xdc00..0xdfff).
+
+test "bytesToStr - invalid UTF-16LE (DanglingSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uD800'.encode('UTF-16LE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0x00, 0xd8 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16BE (DanglingSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uD800'.encode('UTF-16BE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0xd8, 0x00 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16LE (ExpectedSecondSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uD800\uD800'.encode('UTF-16LE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0x00, 0xd8, 0x00, 0xd8 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16BE (ExpectedSecondSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uD800\uD800'.encode('UTF-16BE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0xd8, 0x00, 0xd8, 0x00 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16LE (UnexpectedSecondSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uDC00'.encode('UTF-16LE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0x00, 0xdc };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16LE"),
+    );
+}
+
+test "bytesToStr - invalid UTF-16BE (UnexpectedSecondSurrogateHalf)" {
+    const allocator = std.testing.allocator;
+    // Python 3.6+ code:
+    //
+    // ```python
+    // print(', '.join(f"{b:#04x}" for b in '\uDC00'.encode('UTF-16BE', errors='surrogatepass')))
+    // ```
+    const bytes: []const u8 = &.{ 0xdc, 0x00 };
+    try testing.expectError(
+        error.IllegalSequence,
+        KaitaiStream.bytesToStr(allocator, bytes, "UTF-16BE"),
+    );
 }
 
 test "readF4be" {
