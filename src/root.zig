@@ -367,6 +367,10 @@ pub const KaitaiStream = struct {
         return allocating_writer.toOwnedSlice();
     }
 
+    pub fn bytesStripRight(bytes: []const u8, pad_byte: u8) []const u8 {
+        return std.mem.trimEnd(u8, bytes, &.{pad_byte});
+    }
+
     pub fn bytesTerminate(bytes: []const u8, term: u8, include_term: bool) []const u8 {
         if (std.mem.indexOfScalar(u8, bytes, term)) |term_index| {
             const new_len = term_index + @as(usize, if (include_term) 1 else 0);
@@ -545,6 +549,16 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
     try testing.expectEqual(3, _io.pos());
+}
+
+test "bytesStripRight - padding present" {
+    const res = KaitaiStream.bytesStripRight(&.{ 1, 2, 1, 2, 2 }, 2);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 1 }, res);
+}
+
+test "bytesStripRight - no padding" {
+    const res = KaitaiStream.bytesStripRight(&.{ 1, 2, 1 }, 2);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 1 }, res);
 }
 
 test "bytesTerminate - `include: false`" {
