@@ -367,6 +367,14 @@ pub const KaitaiStream = struct {
         return allocating_writer.toOwnedSlice();
     }
 
+    pub fn bytesTerminate(bytes: []const u8, term: u8, include_term: bool) []const u8 {
+        if (std.mem.indexOfScalar(u8, bytes, term)) |term_index| {
+            const new_len = term_index + @as(usize, if (include_term) 1 else 0);
+            return bytes[0..new_len];
+        }
+        return bytes;
+    }
+
     pub fn bytesToStr(allocator: Allocator, bytes: []const u8, comptime encoding: []const u8) error{ IllegalSequence, OutOfMemory }![]u8 {
         if (comptime std.mem.eql(u8, encoding, "ASCII")) {
             for (bytes) |c| {
@@ -537,6 +545,26 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
     try testing.expectEqual(3, _io.pos());
+}
+
+test "bytesTerminate - `include: false`" {
+    const res = KaitaiStream.bytesTerminate(&.{ 1, 2, 3, 2 }, 2, false);
+    try testing.expectEqualSlices(u8, &.{1}, res);
+}
+
+test "bytesTerminate - `include: true`" {
+    const res = KaitaiStream.bytesTerminate(&.{ 1, 2, 3, 2 }, 2, true);
+    try testing.expectEqualSlices(u8, &.{ 1, 2 }, res);
+}
+
+test "bytesTerminate - `include: false`, but terminator is not present" {
+    const res = KaitaiStream.bytesTerminate(&.{ 1, 2, 3, 2 }, 0, false);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 2 }, res);
+}
+
+test "bytesTerminate - `include: true`, but terminator is not present" {
+    const res = KaitaiStream.bytesTerminate(&.{ 1, 2, 3, 2 }, 0, true);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 2 }, res);
 }
 
 test "bytesToStr - empty ASCII" {
