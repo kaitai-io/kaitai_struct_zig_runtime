@@ -379,6 +379,21 @@ pub const KaitaiStream = struct {
         return bytes;
     }
 
+    pub fn bytesTerminateMulti(bytes: []const u8, term: []const u8, include_term: bool) []const u8 {
+        const unit_size = term.len;
+        if (unit_size > bytes.len) {
+            return bytes;
+        }
+        var i: usize = 0;
+        const end = bytes.len - unit_size;
+        while (i <= end) : (i += unit_size) {
+            if (std.mem.eql(u8, bytes[i..][0..unit_size], term)) {
+                return bytes[0 .. i + (if (include_term) unit_size else 0)];
+            }
+        }
+        return bytes;
+    }
+
     pub fn bytesToStr(allocator: Allocator, bytes: []const u8, comptime encoding: []const u8) error{ IllegalSequence, OutOfMemory }![]u8 {
         if (comptime std.mem.eql(u8, encoding, "ASCII")) {
             for (bytes) |c| {
@@ -579,6 +594,31 @@ test "bytesTerminate - `include: false`, but terminator is not present" {
 test "bytesTerminate - `include: true`, but terminator is not present" {
     const res = KaitaiStream.bytesTerminate(&.{ 1, 2, 3, 2 }, 0, true);
     try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 2 }, res);
+}
+
+test "bytesTerminateMulti - empty terminator" {
+    const res = KaitaiStream.bytesTerminateMulti(&.{}, &.{}, false);
+    try testing.expectEqualSlices(u8, &.{}, res);
+}
+
+test "bytesTerminateMulti - terminator is longer than input bytes" {
+    const res = KaitaiStream.bytesTerminateMulti(&.{0}, &.{ 0, 0 }, false);
+    try testing.expectEqualSlices(u8, &.{0}, res);
+}
+
+test "bytesTerminateMulti - input length is not a multiple of terminator length" {
+    const res = KaitaiStream.bytesTerminateMulti(&.{ 1, 0, 0 }, &.{ 0, 0 }, false);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0 }, res);
+}
+
+test "bytesTerminateMulti - `include: false`" {
+    const res = KaitaiStream.bytesTerminateMulti(&.{ 1, 0, 0, 2, 0, 0, 3, 3 }, &.{ 0, 0 }, false);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 2 }, res);
+}
+
+test "bytesTerminateMulti - `include: true`" {
+    const res = KaitaiStream.bytesTerminateMulti(&.{ 1, 0, 0, 2, 0, 0, 3, 3 }, &.{ 0, 0 }, true);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 2, 0, 0 }, res);
 }
 
 test "bytesToStr - empty ASCII" {
