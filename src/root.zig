@@ -479,6 +479,34 @@ pub const KaitaiStream = struct {
     }
 
     //#endregion
+
+    //#region Byte array processing
+
+    pub fn processXorOne(allocator: Allocator, data: []const u8, key: u8) Allocator.Error![]u8 {
+        var result = try allocator.alloc(u8, data.len);
+        for (data, 0..) |v, i| {
+            result[i] = v ^ key;
+        }
+        return result;
+    }
+
+    pub fn processXorMany(allocator: Allocator, data: []const u8, key: []const u8) Allocator.Error![]u8 {
+        if (key.len == 0) {
+            return allocator.dupe(u8, data);
+        }
+        var result = try allocator.alloc(u8, data.len);
+        var ki: usize = 0;
+        for (data, 0..) |v, i| {
+            result[i] = v ^ key[ki];
+            ki += 1;
+            if (ki >= key.len) {
+                ki = 0;
+            }
+        }
+        return result;
+    }
+
+    //#endregion
 };
 
 test "read file" {
@@ -984,4 +1012,25 @@ test "readBitsIntLe - unaligned b64" {
     try testing.expectEqual(0b0, _io.readBitsIntLe(1));
     try testing.expectEqual(0b0_00110100_11001100_11010100_10001010_00010100_10100011_10111011_1110110, _io.readBitsIntLe(64));
     try testing.expectEqual(0b1000_111, _io.readBitsIntLe(7));
+}
+
+test "processXorOne" {
+    const allocator = std.testing.allocator;
+    const bytes = try KaitaiStream.processXorOne(allocator, &.{ 0x1a, 0xd0 }, 0x11);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 0x0b, 0xc1 }, bytes);
+}
+
+test "processXorMany - empty key" {
+    const allocator = std.testing.allocator;
+    const bytes = try KaitaiStream.processXorMany(allocator, &.{ 0x1a, 0xd0 }, &.{});
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 0x1a, 0xd0 }, bytes);
+}
+
+test "processXorMany" {
+    const allocator = std.testing.allocator;
+    const bytes = try KaitaiStream.processXorMany(allocator, &.{ 0x1a, 0xd8, 0x52, 0xfd, 0x81 }, &.{ 0xff, 0x00 });
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 0xe5, 0xd8, 0xad, 0xfd, 0x7e }, bytes);
 }
