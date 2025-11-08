@@ -514,6 +514,33 @@ pub const KaitaiStream = struct {
         return result;
     }
 
+    pub fn processZlib(allocator: Allocator, data: []const u8) error{ ReadFailed, OutOfMemory }![]u8 {
+        var data_reader = Reader.fixed(data);
+        var decompress: std.compress.flate.Decompress = .init(&data_reader, .zlib, &.{});
+        const decompress_reader = &decompress.reader;
+
+        var allocating_writer = std.Io.Writer.Allocating.init(allocator);
+        defer allocating_writer.deinit();
+        const writer = &allocating_writer.writer;
+
+        _ = decompress_reader.streamRemaining(writer) catch |err| {
+            return switch (err) {
+                // As of Zig 0.15.1,
+                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Writer.Allocating.drain)
+                // returns `error.WriteFailed` if and only if
+                // [`std.array_list.Aligned.ensureUnusedCapacity`](https://ziglang.org/documentation/0.15.1/std/#std.array_list.Aligned.ensureUnusedCapacity)
+                // returns `error.OutOfMemory` - see line
+                // https://github.com/ziglang/zig/blob/3db960767d12b6214bcf43f1966a037c7a586a12/lib/std/Io/Writer.zig#L2633.
+                // Since the fact that we're using any `std.Io.Writer` here is an implementation
+                // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
+                // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
+                error.WriteFailed => error.OutOfMemory,
+                else => |e| e,
+            };
+        };
+        return allocating_writer.toOwnedSlice();
+    }
+
     //#endregion
 };
 
@@ -1048,4 +1075,21 @@ test "processRotateLeft" {
     const bytes = try KaitaiStream.processRotateLeft(allocator, &.{ 0b0111_0110, 0b1101_0000 }, 2);
     defer allocator.free(bytes);
     try testing.expectEqualSlices(u8, &.{ 0b1101_1001, 0b0100_0011 }, bytes);
+}
+
+// Ported from C++: https://github.com/kaitai-io/kaitai_struct_cpp_stl_runtime/blob/c7009877d4b0ca804442e796c996eb4501f3203d/tests/unittest.cpp#L263-L278
+test "processZlib - success" {
+    const allocator = std.testing.allocator;
+    const bytes = try KaitaiStream.processZlib(allocator, &.{ 0x78, 0x9c, 0xf3, 0xc8, 0x04, 0x00, 0x00, 0xfb, 0x00, 0xb2 });
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, "Hi", bytes);
+}
+
+// Ported from C++: https://github.com/kaitai-io/kaitai_struct_cpp_stl_runtime/blob/c7009877d4b0ca804442e796c996eb4501f3203d/tests/unittest.cpp#L303-L325
+test "processZlib - Z_BUF_ERROR" {
+    const allocator = std.testing.allocator;
+    try testing.expectError(
+        error.ReadFailed,
+        KaitaiStream.processZlib(allocator, &.{ 0x78, 0x9c, 0xf3, 0xc8, 0x04, 0x00, 0x00, 0xfb, 0x00 }),
+    );
 }
