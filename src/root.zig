@@ -506,6 +506,14 @@ pub const KaitaiStream = struct {
         return result;
     }
 
+    pub fn processRotateLeft(allocator: Allocator, data: []const u8, amount: i32) Allocator.Error![]u8 {
+        var result = try allocator.alloc(u8, data.len);
+        for (data, 0..) |v, i| {
+            result[i] = std.math.rotl(u8, v, amount);
+        }
+        return result;
+    }
+
     //#endregion
 };
 
@@ -1033,4 +1041,11 @@ test "processXorMany" {
     const bytes = try KaitaiStream.processXorMany(allocator, &.{ 0x1a, 0xd8, 0x52, 0xfd, 0x81 }, &.{ 0xff, 0x00 });
     defer allocator.free(bytes);
     try testing.expectEqualSlices(u8, &.{ 0xe5, 0xd8, 0xad, 0xfd, 0x7e }, bytes);
+}
+
+test "processRotateLeft" {
+    const allocator = std.testing.allocator;
+    const bytes = try KaitaiStream.processRotateLeft(allocator, &.{ 0b0111_0110, 0b1101_0000 }, 2);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 0b1101_1001, 0b0100_0011 }, bytes);
 }
