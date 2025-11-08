@@ -367,6 +367,46 @@ pub const KaitaiStream = struct {
         return allocating_writer.toOwnedSlice();
     }
 
+    pub fn readBytesTermMulti(
+        self: *KaitaiStream,
+        allocator: Allocator,
+        term: []const u8,
+        include_term: bool,
+        consume_term: bool,
+        eos_error: bool,
+    ) error{ ReadFailed, EndOfStream, OutOfMemory }![]u8 {
+        self.alignToByte();
+        const unit_size = term.len;
+        var result: std.ArrayList(u8) = .empty;
+        defer result.deinit(allocator);
+        var c = try allocator.alloc(u8, unit_size);
+        defer allocator.free(c);
+        const r = self.reader();
+        while (true) {
+            const n = try r.readSliceShort(c);
+            if (n < unit_size) {
+                if (eos_error) {
+                    return error.EndOfStream;
+                }
+                try result.appendSlice(allocator, c[0..n]);
+                break;
+            }
+            if (std.mem.eql(u8, c, term)) {
+                if (include_term) {
+                    try result.appendSlice(allocator, c);
+                } else if (!consume_term) {
+                    // We deliberately ignore the possibility of combining `include: true` with
+                    // `consume: false` because it doesn't make sense and will be rejected by the
+                    // compiler in a future version of Kaitai Struct.
+                    self.seek(self.pos() - unit_size) catch return error.ReadFailed;
+                }
+                break;
+            }
+            try result.appendSlice(allocator, c);
+        }
+        return result.toOwnedSlice(allocator);
+    }
+
     pub fn bytesStripRight(bytes: []const u8, pad_byte: u8) []const u8 {
         return std.mem.trimEnd(u8, bytes, &.{pad_byte});
     }
@@ -553,7 +593,7 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, b
     try testing.expectEqual(3, _io.pos());
 }
 
-test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (!)" {
+test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (!), but terminator is not present" {
     const file = try std.fs.cwd().openFile("test.bin", .{});
     defer file.close();
     var buffer: [4096]u8 = undefined;
@@ -563,6 +603,60 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (
     const bytes = try _io.readBytesTerm(allocator, '\x00', true, true, false);
     defer allocator.free(bytes);
     try testing.expectEqualStrings("\xc2\xa3\x0a", bytes);
+    try testing.expectEqual(3, _io.pos());
+}
+
+test "readBytesTermMulti - empty terminator" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 2 });
+    const allocator = std.testing.allocator;
+    const bytes = try _io.readBytesTermMulti(allocator, &.{}, true, true, true);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{}, bytes);
+}
+
+test "readBytesTermMulti - `include: false`, `consume: true`, `eos-error: true` (default)" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 0, 0, 2, 0, 0, 3, 3 });
+    const allocator = std.testing.allocator;
+    const bytes = try _io.readBytesTermMulti(allocator, &.{ 0, 0 }, false, true, true);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 2 }, bytes);
+    try testing.expectEqual(6, _io.pos());
+}
+
+test "readBytesTermMulti - `include: false`, `consume: false` (!), `eos-error: true`" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 0, 0, 2, 0, 0, 3, 3 });
+    const allocator = std.testing.allocator;
+    const bytes = try _io.readBytesTermMulti(allocator, &.{ 0, 0 }, false, false, true);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 2 }, bytes);
+    try testing.expectEqual(4, _io.pos());
+}
+
+test "readBytesTermMulti - `include: true` (!), `consume: true`, `eos-error: true`" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 0, 0, 2, 0, 0, 3, 3 });
+    const allocator = std.testing.allocator;
+    const bytes = try _io.readBytesTermMulti(allocator, &.{ 0, 0 }, true, true, true);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 2, 0, 0 }, bytes);
+    try testing.expectEqual(6, _io.pos());
+}
+
+test "readBytesTermMulti - `include: true` (!), `consume: true`, `eos-error: true`, but terminator is not present" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 0, 0 });
+    const allocator = std.testing.allocator;
+    try testing.expectError(
+        error.EndOfStream,
+        _io.readBytesTermMulti(allocator, &.{ 0, 0 }, true, true, true),
+    );
+    try testing.expectEqual(3, _io.pos());
+}
+
+test "readBytesTermMulti - `include: true` (!), `consume: true`, `eos-error: false` (!), but terminator is not present" {
+    var _io = KaitaiStream.fromBytes(&.{ 1, 0, 0 });
+    const allocator = std.testing.allocator;
+    const bytes = try _io.readBytesTermMulti(allocator, &.{ 0, 0 }, true, true, false);
+    defer allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &.{ 1, 0, 0 }, bytes);
     try testing.expectEqual(3, _io.pos());
 }
 
