@@ -1,9 +1,10 @@
 //! By convention, root.zig is the root source file when making a library.
 const std = @import("std");
 const testing = std.testing;
-const FileReader = std.fs.File.Reader;
+const FileReader = std.Io.File.Reader;
 const Reader = std.Io.Reader;
 const Allocator = std.mem.Allocator;
+const testing_io = std.testing.io;
 
 pub const KaitaiStream = struct {
     reader_impl: union(enum) {
@@ -545,10 +546,10 @@ pub const KaitaiStream = struct {
 };
 
 test "read file" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(3, _io.size());
     try testing.expectEqual(0, _io.pos());
@@ -570,21 +571,21 @@ test "read file" {
 }
 
 test "isEof on reader failure" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
     var buffer: [1]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(false, _io.isEof());
     try testing.expectEqual(0xc2, _io.readU1());
-    file.close();
+    file.close(testing_io);
     try testing.expectError(error.ReadFailed, _io.isEof());
 }
 
 test "readBytes" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, _io.readU1());
@@ -594,10 +595,10 @@ test "readBytes" {
 }
 
 test "readBytesFull" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, _io.readU1());
@@ -607,10 +608,10 @@ test "readBytesFull" {
 }
 
 test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (default)" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', false, true, true);
@@ -620,10 +621,10 @@ test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (defa
 }
 
 test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', false, false, true);
@@ -633,10 +634,10 @@ test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`"
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', true, false, true);
@@ -646,10 +647,10 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, but terminator is not present" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectError(error.EndOfStream, _io.readBytesTerm(allocator, '\x00', true, true, true));
@@ -657,10 +658,10 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, b
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (!), but terminator is not present" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x00', true, true, false);
