@@ -570,8 +570,11 @@ test "isEof on reader failure" {
     var buffer: [1]u8 = undefined;
     var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
-    try testing.expectEqual(false, _io.isEof());
-    try testing.expectEqual(0xc2, _io.readU1());
+    {
+        errdefer file.close(testing_io);
+        try testing.expectEqual(false, _io.isEof());
+        try testing.expectEqual(0xc2, _io.readU1());
+    }
     file.close(testing_io);
     try testing.expectError(error.ReadFailed, _io.isEof());
 }
