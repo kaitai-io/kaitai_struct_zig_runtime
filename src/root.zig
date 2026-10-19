@@ -61,7 +61,7 @@ pub const KaitaiStream = struct {
     // // However, in Kaitai Struct semantics, `_io.eof` is supposed to return `true` even before any
     // // explicit read operation fails, so this is not compatible.
     // pub fn isEof(self: *KaitaiStream) bool {
-    //     return self.reader.atEnd();
+    //     return self.reader_impl.file.atEnd();
     // }
 
     pub fn seek(self: *KaitaiStream, new_pos: u64) FileReader.SeekError!void {
