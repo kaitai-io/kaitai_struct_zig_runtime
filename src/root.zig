@@ -413,7 +413,7 @@ pub const KaitaiStream = struct {
     }
 
     pub fn bytesTerminate(bytes: []const u8, term: u8, include_term: bool) []const u8 {
-        if (std.mem.indexOfScalar(u8, bytes, term)) |term_index| {
+        if (std.mem.findScalar(u8, bytes, term)) |term_index| {
             const new_len = term_index + @as(usize, if (include_term) 1 else 0);
             return bytes[0..new_len];
         }
