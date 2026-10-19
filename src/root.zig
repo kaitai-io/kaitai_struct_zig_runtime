@@ -333,12 +333,12 @@ pub const KaitaiStream = struct {
         const r = self.reader();
         _ = r.streamDelimiterEnding(writer, term) catch |err| {
             return switch (err) {
-                // As of Zig 0.15.1,
-                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Writer.Allocating.drain)
+                // As of Zig 0.16.0,
+                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.drain)
                 // returns `error.WriteFailed` if and only if
-                // [`std.array_list.Aligned.ensureUnusedCapacity`](https://ziglang.org/documentation/0.15.1/std/#std.array_list.Aligned.ensureUnusedCapacity)
+                // [`std.Io.Writer.Allocating.ensureUnusedCapacity`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.ensureUnusedCapacity)
                 // returns `error.OutOfMemory` - see line
-                // https://github.com/ziglang/zig/blob/3db960767d12b6214bcf43f1966a037c7a586a12/lib/std/Io/Writer.zig#L2633.
+                // https://codeberg.org/ziglang/zig/src/commit/24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8/lib/std/Io/Writer.zig#L2705.
                 // Since the fact that we're using any `std.Io.Writer` here is an implementation
                 // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
                 // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
@@ -521,12 +521,12 @@ pub const KaitaiStream = struct {
 
         _ = decompress_reader.streamRemaining(writer) catch |err| {
             return switch (err) {
-                // As of Zig 0.15.1,
-                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Writer.Allocating.drain)
+                // As of Zig 0.16.0,
+                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.drain)
                 // returns `error.WriteFailed` if and only if
-                // [`std.array_list.Aligned.ensureUnusedCapacity`](https://ziglang.org/documentation/0.15.1/std/#std.array_list.Aligned.ensureUnusedCapacity)
+                // [`std.Io.Writer.Allocating.ensureUnusedCapacity`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.ensureUnusedCapacity)
                 // returns `error.OutOfMemory` - see line
-                // https://github.com/ziglang/zig/blob/3db960767d12b6214bcf43f1966a037c7a586a12/lib/std/Io/Writer.zig#L2633.
+                // https://codeberg.org/ziglang/zig/src/commit/24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8/lib/std/Io/Writer.zig#L2705.
                 // Since the fact that we're using any `std.Io.Writer` here is an implementation
                 // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
                 // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
