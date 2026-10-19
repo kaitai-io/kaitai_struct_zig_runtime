@@ -1,9 +1,10 @@
 //! By convention, root.zig is the root source file when making a library.
 const std = @import("std");
 const testing = std.testing;
-const FileReader = std.fs.File.Reader;
+const FileReader = std.Io.File.Reader;
 const Reader = std.Io.Reader;
 const Allocator = std.mem.Allocator;
+const testing_io = std.testing.io;
 
 pub const KaitaiStream = struct {
     reader_impl: union(enum) {
@@ -52,18 +53,13 @@ pub const KaitaiStream = struct {
         }
     }
 
-    // // NOTE: as of Zig 0.15.1
-    // // (https://ziglang.org/documentation/0.15.1/std/#std.fs.File.Reader.atEnd), this implementation
-    // // is broken. If the `size` field is set to a non-`null` value (probably because the `size()`
-    // // method was called before), it may return `true` when the EOF hasn't been reached yet, because
-    // // the `atEnd` method contains `return size - r.pos == 0`, which uses `r.pos` (which includes
-    // // bytes that are prebuffered but haven't been read out yet) instead of `logicalPos`.
-    // //
-    // // If the `size` field is `null` (which is default), it always returns `false`. That may work
-    // // for the semantics of the C `feof` function, which is probably intended (the comment "Even if
-    // // stat fails, size is set when end is encountered." indicates this). However, in Kaitai Struct
-    // // semantics, `_io.eof` is supposed to return `true` even before any explicit read operation
-    // // fails, so this is not compatible.
+    // // NOTE: as of Zig 0.16.0
+    // // (https://ziglang.org/documentation/0.16.0/std/#std.Io.File.Reader.atEnd), this implementation
+    // // doesn't work for us. If the `size` field is `null` (which is default), it always returns
+    // // `false`. That may work for the semantics of the C `feof` function, which is probably intended
+    // // (the comment "Even if stat fails, size is set when end is encountered." indicates this).
+    // // However, in Kaitai Struct semantics, `_io.eof` is supposed to return `true` even before any
+    // // explicit read operation fails, so this is not compatible.
     // pub fn isEof(self: *KaitaiStream) bool {
     //     return self.reader.atEnd();
     // }
@@ -337,12 +333,12 @@ pub const KaitaiStream = struct {
         const r = self.reader();
         _ = r.streamDelimiterEnding(writer, term) catch |err| {
             return switch (err) {
-                // As of Zig 0.15.1,
-                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Writer.Allocating.drain)
+                // As of Zig 0.16.0,
+                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.drain)
                 // returns `error.WriteFailed` if and only if
-                // [`std.array_list.Aligned.ensureUnusedCapacity`](https://ziglang.org/documentation/0.15.1/std/#std.array_list.Aligned.ensureUnusedCapacity)
+                // [`std.Io.Writer.Allocating.ensureUnusedCapacity`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.ensureUnusedCapacity)
                 // returns `error.OutOfMemory` - see line
-                // https://github.com/ziglang/zig/blob/3db960767d12b6214bcf43f1966a037c7a586a12/lib/std/Io/Writer.zig#L2633.
+                // https://codeberg.org/ziglang/zig/src/commit/24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8/lib/std/Io/Writer.zig#L2705.
                 // Since the fact that we're using any `std.Io.Writer` here is an implementation
                 // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
                 // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
@@ -412,7 +408,7 @@ pub const KaitaiStream = struct {
     }
 
     pub fn bytesTerminate(bytes: []const u8, term: u8, include_term: bool) []const u8 {
-        if (std.mem.indexOfScalar(u8, bytes, term)) |term_index| {
+        if (std.mem.findScalar(u8, bytes, term)) |term_index| {
             const new_len = term_index + @as(usize, if (include_term) 1 else 0);
             return bytes[0..new_len];
         }
@@ -525,12 +521,12 @@ pub const KaitaiStream = struct {
 
         _ = decompress_reader.streamRemaining(writer) catch |err| {
             return switch (err) {
-                // As of Zig 0.15.1,
-                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.15.1/std/#std.Io.Writer.Allocating.drain)
+                // As of Zig 0.16.0,
+                // [`std.Io.Writer.Allocating.drain`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.drain)
                 // returns `error.WriteFailed` if and only if
-                // [`std.array_list.Aligned.ensureUnusedCapacity`](https://ziglang.org/documentation/0.15.1/std/#std.array_list.Aligned.ensureUnusedCapacity)
+                // [`std.Io.Writer.Allocating.ensureUnusedCapacity`](https://ziglang.org/documentation/0.16.0/std/#std.Io.Writer.Allocating.ensureUnusedCapacity)
                 // returns `error.OutOfMemory` - see line
-                // https://github.com/ziglang/zig/blob/3db960767d12b6214bcf43f1966a037c7a586a12/lib/std/Io/Writer.zig#L2633.
+                // https://codeberg.org/ziglang/zig/src/commit/24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8/lib/std/Io/Writer.zig#L2705.
                 // Since the fact that we're using any `std.Io.Writer` here is an implementation
                 // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
                 // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
@@ -545,10 +541,10 @@ pub const KaitaiStream = struct {
 };
 
 test "read file" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(3, _io.size());
     try testing.expectEqual(0, _io.pos());
@@ -570,21 +566,21 @@ test "read file" {
 }
 
 test "isEof on reader failure" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
     var buffer: [1]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     try testing.expectEqual(false, _io.isEof());
     try testing.expectEqual(0xc2, _io.readU1());
-    file.close();
+    file.close(testing_io);
     try testing.expectError(error.ReadFailed, _io.isEof());
 }
 
 test "readBytes" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, _io.readU1());
@@ -594,10 +590,10 @@ test "readBytes" {
 }
 
 test "readBytesFull" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectEqual(0xc2, _io.readU1());
@@ -607,10 +603,10 @@ test "readBytesFull" {
 }
 
 test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (default)" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', false, true, true);
@@ -620,10 +616,10 @@ test "readBytesTerm - `include: false`, `consume: true`, `eos-error: true` (defa
 }
 
 test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', false, false, true);
@@ -633,10 +629,10 @@ test "readBytesTerm - `include: false`, `consume: false` (!), `eos-error: true`"
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x0a', true, false, true);
@@ -646,10 +642,10 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`" {
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, but terminator is not present" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     try testing.expectError(error.EndOfStream, _io.readBytesTerm(allocator, '\x00', true, true, true));
@@ -657,10 +653,10 @@ test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: true`, b
 }
 
 test "readBytesTerm - `include: true` (!), `consume: true`, `eos-error: false` (!), but terminator is not present" {
-    const file = try std.fs.cwd().openFile("test.bin", .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(testing_io, "test.bin", .{});
+    defer file.close(testing_io);
     var buffer: [4096]u8 = undefined;
-    var reader = file.reader(&buffer);
+    var reader = file.reader(testing_io, &buffer);
     var _io = KaitaiStream.fromFileReader(&reader);
     const allocator = std.testing.allocator;
     const bytes = try _io.readBytesTerm(allocator, '\x00', true, true, false);
