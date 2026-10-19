@@ -529,7 +529,7 @@ pub const KaitaiStream = struct {
                 // https://codeberg.org/ziglang/zig/src/commit/24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8/lib/std/Io/Writer.zig#L2705.
                 // Since the fact that we're using any `std.Io.Writer` here is an implementation
                 // detail, it doesn't really make sense to propagate `error.WriteFailed` out to
-                // callers of `readBytesTerm`, so we convert it back to `error.OutOfMemory`.
+                // callers of `processZlib`, so we convert it back to `error.OutOfMemory`.
                 error.WriteFailed => error.OutOfMemory,
                 else => |e| e,
             };
