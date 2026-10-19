@@ -53,18 +53,13 @@ pub const KaitaiStream = struct {
         }
     }
 
-    // // NOTE: as of Zig 0.15.1
-    // // (https://ziglang.org/documentation/0.15.1/std/#std.fs.File.Reader.atEnd), this implementation
-    // // is broken. If the `size` field is set to a non-`null` value (probably because the `size()`
-    // // method was called before), it may return `true` when the EOF hasn't been reached yet, because
-    // // the `atEnd` method contains `return size - r.pos == 0`, which uses `r.pos` (which includes
-    // // bytes that are prebuffered but haven't been read out yet) instead of `logicalPos`.
-    // //
-    // // If the `size` field is `null` (which is default), it always returns `false`. That may work
-    // // for the semantics of the C `feof` function, which is probably intended (the comment "Even if
-    // // stat fails, size is set when end is encountered." indicates this). However, in Kaitai Struct
-    // // semantics, `_io.eof` is supposed to return `true` even before any explicit read operation
-    // // fails, so this is not compatible.
+    // // NOTE: as of Zig 0.16.0
+    // // (https://ziglang.org/documentation/0.16.0/std/#std.Io.File.Reader.atEnd), this implementation
+    // // doesn't work for us. If the `size` field is `null` (which is default), it always returns
+    // // `false`. That may work for the semantics of the C `feof` function, which is probably intended
+    // // (the comment "Even if stat fails, size is set when end is encountered." indicates this).
+    // // However, in Kaitai Struct semantics, `_io.eof` is supposed to return `true` even before any
+    // // explicit read operation fails, so this is not compatible.
     // pub fn isEof(self: *KaitaiStream) bool {
     //     return self.reader.atEnd();
     // }
